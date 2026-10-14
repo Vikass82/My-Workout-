@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>3D Exercise Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background-color: #0A0F1D; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #canvas-container { width: 100%; height: 100%; position: relative; }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+    /* UI Overlays inside Viewer */
+    .overlay-top-left {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .badge-label {
+      background: rgba(19, 29, 49, 0.85);
+      border: 1px solid #2E3E5E;
+      color: #F8FAFC;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      backdrop-filter: blur(4px);
+    }
+    .badge-indicator {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #A3E635;
+      box-shadow: 0 0 6px #A3E635;
+    }
+    .cue-pill {
+      background: rgba(163, 230, 53, 0.15);
+      border: 1px solid rgba(163, 230, 53, 0.4);
+      color: #A3E635;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Floating Angle & Reset Buttons */
+    .controls-overlay {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 10;
+    }
+    .icon-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: rgba(19, 29, 49, 0.85);
+      border: 1px solid #2E3E5E;
+      color: #F8FAFC;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      touch-action: manipulation;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    .icon-btn:active { background: #A3E635; color: #0A0F1D; }
+
+    /* Angle Selector Bar (bottom left) */
+    .angles-bar {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      display: flex;
+      gap: 4px;
+      z-index: 10;
+    }
+    .angle-btn {
+      background: rgba(19, 29, 49, 0.85);
+      border: 1px solid #2E3E5E;
+      color: #94A3B8;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 4px 7px;
+      border-radius: 6px;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+    }
+    .angle-btn.active {
+      background: #A3E635;
+      color: #0A0F1D;
+      border-color: #A3E635;
+    }
+
+    /* Loading / Fallback Banner */
+    #loader {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: #0A0F1D;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #F8FAFC;
+      font-size: 13px;
+      z-index: 100;
+      transition: opacity 0.3s;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(163, 230, 53, 0.2);
+      border-top-color: #A3E635;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #error-banner {
+      display: none;
+      position: absolute;
+      top: 20%; left: 10%; right: 10%;
+      background: #1E2B45;
+      border: 1px solid #F87171;
+      padding: 16px;
+      border-radius: 12px;
+      color: #F8FAFC;
+      font-size: 12px;
+      text-align: center;
+      z-index: 200;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container">
+    <div id="loader">
+      <div class="spinner"></div>
+      <div>Loading 3D Kinetic Simulation...</div>
+    </div>
+
+    <div id="error-banner">
+      <strong>WebGL Graphics Unavailable</strong>
+      <p style="margin-top:6px; color:#94A3B8;">Your device does not support hardware 3D WebGL acceleration. Interactive 3D mode is currently limited.</p>
+    </div>
+
+    <!-- Top Left Information Overlay -->
+    <div class="overlay-top-left">
+      <div class="badge-label">
+        <span class="badge-indicator"></span>
+        <span id="model-mode-text">Real-time 3D Biomechanics</span>
+      </div>
+      <div class="cue-pill" id="kinetic-cue-pill">Spine: Rigid Neutral Alignment</div>
+    </div>
+
+    <!-- Quick Camera Angle Buttons -->
+    <div class="angles-bar">
+      <button class="angle-btn active" id="btn-ang-front" onclick="setCameraAngle('front')">Front</button>
+      <button class="angle-btn" id="btn-ang-side" onclick="setCameraAngle('side')">Side</button>
+      <button class="angle-btn" id="btn-ang-angle45" onclick="setCameraAngle('angle45')">45°</button>
+      <button class="angle-btn" id="btn-ang-back" onclick="setCameraAngle('back')">Rear</button>
+      <button class="angle-btn" id="btn-ang-top" onclick="setCameraAngle('top')">Top</button>
+    </div>
+
+    <!-- Quick Zoom & Reset Controls -->
+    <div class="controls-overlay">
+      <button class="icon-btn" onclick="zoomIn()" title="Zoom In">+</button>
+      <button class="icon-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+      <button class="icon-btn" onclick="resetCamera()" title="Reset Camera">↺</button>
+      <button class="icon-btn" id="btn-autorotate" onclick="toggleAutoRotate()" title="Auto-Rotate">⟳</button>
+    </div>
+  </div>
+
+  <script src="three.min.js"></script>
+  <script src="OrbitControls.js"></script>
+  <script>
+    // --- 1. Global Setup & WebGL Check ---
+    let scene, camera, renderer, controls;
+    let humanoidGroup, mannequin = {};
+    let propsGroup, pullupBar, schoolBag;
+    let overlayGroup, spineCurveLine, jointMarkers = [];
+    let stageMesh, ringMesh, gridHelper;
+    let bodyMat, jointMat, accentMat, muscleHighlightMat;
+    let showGrid = true;
+    let highlightMuscles = true;
+    let currentExercise = 'pushups';
+    let isPlaying = true;
+    let playbackSpeed = 1.0;
+    let animationTime = 0;
+    let showFormOverlay = true;
+    let stepPhase = 0; // 0 = continuous loop, 1 = start, 2 = mid/contract, 3 = finish
+    let autoRotate = false;
+
+    // Check WebGL availability
+    function isWebGLAvailable() {
+      try {
+        const c = document.createElement('canvas');
+        return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')));
+      } catch (e) {
+        return false;
+      }
+    }
+
+    if (!isWebGLAvailable()) {
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('error-banner').style.display = 'block';
+    } else {
+      init();
+    }
+
+    function init() {
+      const container = document.getElementById('canvas-container');
+      const w = container.clientWidth || window.innerWidth;
+      const h = container.clientHeight || window.innerHeight;
+
+      // Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0A0F1D);
+      scene.fog = new THREE.FogExp2(0x0A0F1D, 0.045);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+      camera.position.set(0, 1.3, 3.2);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      container.appendChild(renderer.domElement);
+
+      // OrbitControls with 360-degree rotation and touch support
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.screenSpacePanning = false;
+      controls.minDistance = 1.0;
+      controls.maxDistance = 6.0;
+      controls.maxPolarAngle = Math.PI / 2 + 0.05; // Prevent flipping under floor
+      controls.target.set(0, 0.75, 0);
+
+      // Lighting
+      setupLighting();
+
+      // Environment: Stage & Floor Grid
+      setupStage();
+
+      // Build 3D Articulated Humanoid Mannequin
+      buildHumanoidMannequin();
+
+      // Build Dynamic Exercise Props (Pull-up Bar, School Bag)
+      buildProps();
+
+      // Build Form Education Overlay (Kinetic joint & spine markers)
+      buildFormEducationOverlay();
+
+      // Handle Resize
+      window.addEventListener('resize', onWindowResize, false);
+
+      // Hide Loader
+      setTimeout(() => {
+        const loader = document.getElementById('loader');
+        if (loader) {
+          loader.style.opacity = '0';
+          setTimeout(() => loader.style.display = 'none', 300);
+        }
+      }, 400);
+
+      // Start Animation Loop
+      animate();
+    }
+
+    // --- 2. Lighting Setup ---
+    function setupLighting() {
+      const ambient = new THREE.AmbientLight(0x2E3E5E, 1.2);
+      scene.add(ambient);
+
+      // Key light with shadow
+      const dirLight = new THREE.DirectionalLight(0xF8FAFC, 1.6);
+      dirLight.position.set(3, 5, 3);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.width = 1024;
+      dirLight.shadow.mapSize.height = 1024;
+      dirLight.shadow.camera.near = 0.5;
+      dirLight.shadow.camera.far = 15;
+      dirLight.shadow.camera.left = -2;
+      dirLight.shadow.camera.right = 2;
+      dirLight.shadow.camera.top = 3;
+      dirLight.shadow.camera.bottom = -1;
+      scene.add(dirLight);
+
+      // Rim light for athletic silhouette
+      const rimLight = new THREE.DirectionalLight(0xA3E635, 1.8);
+      rimLight.position.set(-3, 3, -3);
+      scene.add(rimLight);
+
+      // Soft blue fill from opposite side
+      const fillLight = new THREE.DirectionalLight(0x38BDF8, 0.8);
+      fillLight.position.set(2, 1, -2);
+      scene.add(fillLight);
+    }
+
+    // --- 3. Stage & Floor Grid ---
+    function setupStage() {
+      // Reflective circular stage plate
+      const stageGeo = new THREE.CylinderGeometry(1.6, 1.7, 0.04, 48);
+      const stageMat = new THREE.MeshStandardMaterial({
+        color: 0x131D31,
+        metalness: 0.3,
+        roughness: 0.6
+      });
+      stageMesh = new THREE.Mesh(stageGeo, stageMat);
+      stageMesh.position.y = -0.02;
+      stageMesh.receiveShadow = true;
+      scene.add(stageMesh);
+
+      // Outer accent ring
+      const ringGeo = new THREE.RingGeometry(1.62, 1.66, 48);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xA3E635, side: THREE.DoubleSide });
+      ringMesh = new THREE.Mesh(ringGeo, ringMat);
+      ringMesh.rotation.x = -Math.PI / 2;
+      ringMesh.position.y = 0.001;
+      scene.add(ringMesh);
+
+      // Subtle floor grid
+      gridHelper = new THREE.GridHelper(8, 24, 0x2E3E5E, 0x1A2538);
+      gridHelper.position.y = -0.001;
+      scene.add(gridHelper);
+    }
+
+    // --- 4. Articulated Procedural 3D Humanoid Model ---
+    function buildHumanoidMannequin() {
+      humanoidGroup = new THREE.Group();
+      scene.add(humanoidGroup);
+
+      // Materials
+      bodyMat = new THREE.MeshStandardMaterial({
+        color: 0x243254,
+        metalness: 0.25,
+        roughness: 0.35
+      });
+      jointMat = new THREE.MeshStandardMaterial({
+        color: 0xA3E635,
+        emissive: 0x4D7C0F,
+        emissiveIntensity: 0.3,
+        metalness: 0.4,
+        roughness: 0.2
+      });
+      accentMat = new THREE.MeshStandardMaterial({
+        color: 0x38BDF8,
+        metalness: 0.4,
+        roughness: 0.3
+      });
+      muscleHighlightMat = new THREE.MeshStandardMaterial({
+        color: 0xA3E635,
+        emissive: 0x65A30D,
+        emissiveIntensity: 0.75,
+        metalness: 0.1,
+        roughness: 0.25
+      });
+
+      // Pelvis / Root
+      const pelvis = new THREE.Group();
+      pelvis.position.y = 0.85;
+      humanoidGroup.add(pelvis);
+      mannequin.pelvis = pelvis;
+
+      const pelvisMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.12, 16), bodyMat);
+      pelvisMesh.castShadow = true;
+      pelvis.add(pelvisMesh);
+
+      // Spine / Lower Torso
+      const spine = new THREE.Group();
+      pelvis.add(spine);
+      mannequin.spine = spine;
+
+      const spineMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.13, 0.16, 16), bodyMat);
+      spineMesh.position.y = 0.1;
+      spineMesh.castShadow = true;
+      spine.add(spineMesh);
+
+      // Chest / Upper Torso
+      const chest = new THREE.Group();
+      chest.position.y = 0.2;
+      spine.add(chest);
+      mannequin.chest = chest;
+
+      const chestMesh = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.18), bodyMat);
+      chestMesh.position.y = 0.11;
+      chestMesh.castShadow = true;
+      chest.add(chestMesh);
+
+      // Neck & Head
+      const neck = new THREE.Group();
+      neck.position.y = 0.23;
+      chest.add(neck);
+      mannequin.neck = neck;
+
+      const headGeo = new THREE.SphereGeometry(0.10, 20, 20);
+      headGeo.scale(0.85, 1.1, 0.95);
+      const headMesh = new THREE.Mesh(headGeo, bodyMat);
+      headMesh.position.y = 0.12;
+      headMesh.castShadow = true;
+      neck.add(headMesh);
+
+      // Visor / Face direction indicator
+      const visorMesh = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.04, 0.06), accentMat);
+      visorMesh.position.set(0, 0.12, 0.09);
+      neck.add(visorMesh);
+
+      // --- Left Arm ---
+      const lClavicle = new THREE.Group();
+      lClavicle.position.set(0.19, 0.18, 0);
+      chest.add(lClavicle);
+      mannequin.lClavicle = lClavicle;
+
+      const lShoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), jointMat);
+      lClavicle.add(lShoulderJoint);
+
+      const lUpperArm = new THREE.Group();
+      lClavicle.add(lUpperArm);
+      mannequin.lUpperArm = lUpperArm;
+
+      const lUpperArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.24, 16), bodyMat);
+      lUpperArmMesh.position.y = -0.12;
+      lUpperArmMesh.castShadow = true;
+      lUpperArm.add(lUpperArmMesh);
+
+      const lElbow = new THREE.Group();
+      lElbow.position.y = -0.24;
+      lUpperArm.add(lElbow);
+      mannequin.lElbow = lElbow;
+
+      const lElbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.038, 16, 16), jointMat);
+      lElbow.add(lElbowJoint);
+
+      const lForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.22, 16), bodyMat);
+      lForearm.position.y = -0.11;
+      lForearm.castShadow = true;
+      lElbow.add(lForearm);
+
+      const lHand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.03), jointMat);
+      lHand.position.y = -0.25;
+      lElbow.add(lHand);
+      mannequin.lHand = lHand;
+
+      // --- Right Arm ---
+      const rClavicle = new THREE.Group();
+      rClavicle.position.set(-0.19, 0.18, 0);
+      chest.add(rClavicle);
+      mannequin.rClavicle = rClavicle;
+
+      const rShoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), jointMat);
+      rClavicle.add(rShoulderJoint);
+
+      const rUpperArm = new THREE.Group();
+      rClavicle.add(rUpperArm);
+      mannequin.rUpperArm = rUpperArm;
+
+      const rUpperArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.24, 16), bodyMat);
+      rUpperArmMesh.position.y = -0.12;
+      rUpperArmMesh.castShadow = true;
+      rUpperArm.add(rUpperArmMesh);
+
+      const rElbow = new THREE.Group();
+      rElbow.position.y = -0.24;
+      rUpperArm.add(rElbow);
+      mannequin.rElbow = rElbow;
+
+      const rElbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.038, 16, 16), jointMat);
+      rElbow.add(rElbowJoint);
+
+      const rForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.22, 16), bodyMat);
+      rForearm.position.y = -0.11;
+      rForearm.castShadow = true;
+      rElbow.add(rForearm);
+
+      const rHand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.03), jointMat);
+      rHand.position.y = -0.25;
+      rElbow.add(rHand);
+      mannequin.rHand = rHand;
+
+      // --- Left Leg ---
+      const lHip = new THREE.Group();
+      lHip.position.set(0.10, -0.06, 0);
+      pelvis.add(lHip);
+      mannequin.lHip = lHip;
+
+      const lHipJoint = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 16), jointMat);
+      lHip.add(lHipJoint);
+
+      const lThigh = new THREE.Group();
+      lHip.add(lThigh);
+      mannequin.lThigh = lThigh;
+
+      const lThighMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.38, 16), bodyMat);
+      lThighMesh.position.y = -0.19;
+      lThighMesh.castShadow = true;
+      lThigh.add(lThighMesh);
+
+      const lKnee = new THREE.Group();
+      lKnee.position.y = -0.38;
+      lThigh.add(lKnee);
+      mannequin.lKnee = lKnee;
+
+      const lKneeJoint = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), jointMat);
+      lKnee.add(lKneeJoint);
+
+      const lShin = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.035, 0.36, 16), bodyMat);
+      lShin.position.y = -0.18;
+      lShin.castShadow = true;
+      lKnee.add(lShin);
+
+      const lFoot = new THREE.Group();
+      lFoot.position.y = -0.36;
+      lKnee.add(lFoot);
+      mannequin.lFoot = lFoot;
+
+      const lFootMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.16), accentMat);
+      lFootMesh.position.set(0, -0.025, 0.05);
+      lFootMesh.castShadow = true;
+      lFoot.add(lFootMesh);
+
+      // --- Right Leg ---
+      const rHip = new THREE.Group();
+      rHip.position.set(-0.10, -0.06, 0);
+      pelvis.add(rHip);
+      mannequin.rHip = rHip;
+
+      const rHipJoint = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 16), jointMat);
+      rHip.add(rHipJoint);
+
+      const rThigh = new THREE.Group();
+      rHip.add(rThigh);
+      mannequin.rThigh = rThigh;
+
+      const rThighMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.38, 16), bodyMat);
+      rThighMesh.position.y = -0.19;
+      rThighMesh.castShadow = true;
+      rThigh.add(rThighMesh);
+
+      const rKnee = new THREE.Group();
+      rKnee.position.y = -0.38;
+      rThigh.add(rKnee);
+      mannequin.rKnee = rKnee;
+
+      const rKneeJoint = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), jointMat);
+      rKnee.add(rKneeJoint);
+
+      const rShin = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.035, 0.36, 16), bodyMat);
+      rShin.position.y = -0.18;
+      rShin.castShadow = true;
+      rKnee.add(rShin);
+
+      const rFoot = new THREE.Group();
+      rFoot.position.y = -0.36;
+      rKnee.add(rFoot);
+      mannequin.rFoot = rFoot;
+
+      const rFootMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.16), accentMat);
+      rFootMesh.position.set(0, -0.025, 0.05);
+      rFootMesh.castShadow = true;
+      rFoot.add(rFootMesh);
+
+      // Save references for biomechanical muscle highlighting
+      mannequin.pelvisMesh = pelvisMesh;
+      mannequin.spineMesh = spineMesh;
+      mannequin.chestMesh = chestMesh;
+      mannequin.lShoulderJoint = lShoulderJoint;
+      mannequin.lUpperArmMesh = lUpperArmMesh;
+      mannequin.lForearmMesh = lForearm;
+      mannequin.rShoulderJoint = rShoulderJoint;
+      mannequin.rUpperArmMesh = rUpperArmMesh;
+      mannequin.rForearmMesh = rForearm;
+      mannequin.lThighMesh = lThighMesh;
+      mannequin.lShinMesh = lShin;
+      mannequin.rThighMesh = rThighMesh;
+      mannequin.rShinMesh = rShin;
+    }
+
+    // --- 5. Dynamic Props (Pull-up Bar, School Bag) ---
+    function buildProps() {
+      propsGroup = new THREE.Group();
+      scene.add(propsGroup);
+
+      // Pull-up Bar Structure
+      pullupBar = new THREE.Group();
+      pullupBar.visible = false;
+      propsGroup.add(pullupBar);
+
+      const barMat = new THREE.MeshStandardMaterial({ color: 0x94A3B8, metalness: 0.8, roughness: 0.2 });
+      const mainBar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.4, 16), barMat);
+      mainBar.rotation.z = Math.PI / 2;
+      mainBar.position.y = 1.95;
+      mainBar.castShadow = true;
+      pullupBar.add(mainBar);
+
+      // Vertical Support posts
+      const postL = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.0, 16), barMat);
+      postL.position.set(0.65, 1.0, 0);
+      pullupBar.add(postL);
+      const postR = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.0, 16), barMat);
+      postR.position.set(-0.65, 1.0, 0);
+      pullupBar.add(postR);
+
+      // School Bag for rows/curls
+      schoolBag = new THREE.Group();
+      schoolBag.visible = false;
+      propsGroup.add(schoolBag);
+
+      const bagMat = new THREE.MeshStandardMaterial({ color: 0x0F766E, roughness: 0.7 });
+      const bagMesh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.32, 0.16), bagMat);
+      bagMesh.castShadow = true;
+      schoolBag.add(bagMesh);
+
+      // Bag straps/handle
+      const strapGeo = new THREE.TorusGeometry(0.07, 0.015, 8, 16, Math.PI);
+      const strapMat = new THREE.MeshBasicMaterial({ color: 0xA3E635 });
+      const strap = new THREE.Mesh(strapGeo, strapMat);
+      strap.position.y = 0.16;
+      schoolBag.add(strap);
+    }
+
+    // --- 6. Form Education Overlay ---
+    function buildFormEducationOverlay() {
+      overlayGroup = new THREE.Group();
+      scene.add(overlayGroup);
+
+      // Glowing spine axis curve
+      const points = [
+        new THREE.Vector3(0, 0.85, 0),
+        new THREE.Vector3(0, 1.05, 0),
+        new THREE.Vector3(0, 1.25, 0)
+      ];
+      const spineGeo = new THREE.BufferGeometry().setFromPoints(points);
+      const spineMat = new THREE.LineBasicMaterial({ color: 0xA3E635, linewidth: 3 });
+      spineCurveLine = new THREE.Line(spineGeo, spineMat);
+      overlayGroup.add(spineCurveLine);
+
+      // Highlighting joint halo rings
+      const ringGeo = new THREE.RingGeometry(0.06, 0.08, 24);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xA3E635, side: THREE.DoubleSide });
+
+      for (let i = 0; i < 6; i++) {
+        const marker = new THREE.Mesh(ringGeo, ringMat);
+        overlayGroup.add(marker);
+        jointMarkers.push(marker);
+      }
+    }
+
+    // --- 7. Biomechanical Animation Kinematics ---
+    // Pure forward kinematics per exercise based on normalized loop progress (t in [0, 1])
+    function updateExercisePose(t) {
+      // Reset defaults
+      humanoidGroup.position.set(0, 0, 0);
+      humanoidGroup.rotation.set(0, 0, 0);
+      mannequin.pelvis.position.set(0, 0.85, 0);
+      mannequin.pelvis.rotation.set(0, 0, 0);
+      mannequin.spine.rotation.set(0, 0, 0);
+      mannequin.chest.rotation.set(0, 0, 0);
+      mannequin.neck.rotation.set(0, 0, 0);
+
+      mannequin.lUpperArm.rotation.set(0, 0, 0);
+      mannequin.rUpperArm.rotation.set(0, 0, 0);
+      mannequin.lElbow.rotation.set(0, 0, 0);
+      mannequin.rElbow.rotation.set(0, 0, 0);
+
+      mannequin.lThigh.rotation.set(0, 0, 0);
+      mannequin.rThigh.rotation.set(0, 0, 0);
+      mannequin.lKnee.rotation.set(0, 0, 0);
+      mannequin.rKnee.rotation.set(0, 0, 0);
+      mannequin.lFoot.rotation.set(0, 0, 0);
+      mannequin.rFoot.rotation.set(0, 0, 0);
+
+      // Hide props by default
+      pullupBar.visible = false;
+      schoolBag.visible = false;
+
+      // Smooth ping-pong cycle: 0 -> 1 -> 0
+      const cycle = Math.sin(t * Math.PI); // 0 at start, 1 at peak flexion/contraction
+      const cueEl = document.getElementById('kinetic-cue-pill');
+
+      switch (currentExercise) {
+        case 'pushups':
+        case 'normal_pushups': {
+          cueEl.innerText = cycle > 0.6 ? "Chest 2 inches off floor • Elbows 45°" : "Spine locked • Glutes active";
+          // Horizontal plank orientation
+          humanoidGroup.position.set(0, 0.26 - (cycle * 0.16), 0);
+          humanoidGroup.rotation.x = -Math.PI / 2 + 0.12;
+
+          // Elbows flex into 45-degree angle
+          const armAngle = 0.2 + (cycle * 1.3);
+          mannequin.lUpperArm.rotation.x = -armAngle;
+          mannequin.lUpperArm.rotation.z = 0.35 + (cycle * 0.2);
+          mannequin.lElbow.rotation.x = armAngle * 1.2;
+
+          mannequin.rUpperArm.rotation.x = -armAngle;
+          mannequin.rUpperArm.rotation.z = -0.35 - (cycle * 0.2);
+          mannequin.rElbow.rotation.x = armAngle * 1.2;
+
+          // Feet dorsiflexed on ground
+          mannequin.lFoot.rotation.x = -0.4;
+          mannequin.rFoot.rotation.x = -0.4;
+          break;
+        }
+
+        case 'diamond_pushups': {
+          cueEl.innerText = cycle > 0.6 ? "Thumbs & index touching • Triceps focus" : "Hands centered under sternum";
+          humanoidGroup.position.set(0, 0.26 - (cycle * 0.15), 0);
+          humanoidGroup.rotation.x = -Math.PI / 2 + 0.12;
+
+          // Hands tucked close together beneath chest
+          const armAngle = 0.3 + (cycle * 1.4);
+          mannequin.lUpperArm.rotation.x = -armAngle;
+          mannequin.lUpperArm.rotation.z = -0.2 - (cycle * 0.1);
+          mannequin.lElbow.rotation.x = armAngle * 1.1;
+
+          mannequin.rUpperArm.rotation.x = -armAngle;
+          mannequin.rUpperArm.rotation.z = 0.2 + (cycle * 0.1);
+          mannequin.rElbow.rotation.x = armAngle * 1.1;
+          break;
+        }
+
+        case 'pike_pushups': {
+          cueEl.innerText = cycle > 0.6 ? "Head descends in tripod forward angle" : "Hips pushed high • Inverted V";
+          // Inverted V Pike stance
+          humanoidGroup.position.set(0, 0.15, 0);
+          mannequin.pelvis.position.set(0, 0.85 - (cycle * 0.18), -(cycle * 0.15));
+          mannequin.spine.rotation.x = -1.1 - (cycle * 0.2);
+          mannequin.lThigh.rotation.x = 0.8;
+          mannequin.rThigh.rotation.x = 0.8;
+
+          const pikeArm = 0.4 + (cycle * 1.2);
+          mannequin.lUpperArm.rotation.x = -pikeArm;
+          mannequin.rUpperArm.rotation.x = -pikeArm;
+          mannequin.lElbow.rotation.x = pikeArm * 1.3;
+          mannequin.rElbow.rotation.x = pikeArm * 1.3;
+          break;
+        }
+
+        case 'squats':
+        case 'bodyweight_squats': {
+          cueEl.innerText = cycle > 0.6 ? "Thighs parallel • Knees track over pinky toes" : "Proud chest • Weight balanced";
+          // Lower pelvis downwards and slightly backwards
+          const squatDrop = cycle * 0.36;
+          mannequin.pelvis.position.set(0, 0.85 - squatDrop, -(cycle * 0.16));
+
+          // Torso hinges forward slightly to counterbalance
+          mannequin.spine.rotation.x = cycle * 0.38;
+
+          // Hip & Knee flexion
+          const hipFlex = cycle * 1.55;
+          const kneeFlex = cycle * 1.85;
+          mannequin.lThigh.rotation.x = -hipFlex;
+          mannequin.rThigh.rotation.x = -hipFlex;
+          mannequin.lKnee.rotation.x = kneeFlex;
+          mannequin.rKnee.rotation.x = kneeFlex;
+
+          // Counterbalance arms reaching forward
+          mannequin.lUpperArm.rotation.x = -(cycle * 1.4);
+          mannequin.rUpperArm.rotation.x = -(cycle * 1.4);
+          break;
+        }
+
+        case 'lunges':
+        case 'reverse_lunges': {
+          cueEl.innerText = cycle > 0.6 ? "Both knees 90° • Front knee stable" : "Torso tall • Step back softly";
+          const lungeDrop = cycle * 0.28;
+          mannequin.pelvis.position.set(0, 0.85 - lungeDrop, 0);
+
+          // Front leg (Left) stays forward and bends to 90
+          mannequin.lThigh.rotation.x = -(cycle * 1.45);
+          mannequin.lKnee.rotation.x = cycle * 1.6;
+
+          // Back leg (Right) steps back
+          mannequin.rThigh.rotation.x = cycle * 0.6;
+          mannequin.rKnee.rotation.x = cycle * 1.65;
+
+          // Hands on hips or in front
+          mannequin.lUpperArm.rotation.x = -0.3;
+          mannequin.rUpperArm.rotation.x = -0.3;
+          break;
+        }
+
+        case 'calf_raises': {
+          cueEl.innerText = cycle > 0.6 ? "Hold peak ankle squeeze for 1 second" : "Slow 2-second controlled descent";
+          // Body elevates up onto balls of feet
+          const lift = cycle * 0.12;
+          humanoidGroup.position.set(0, lift, 0);
+
+          // Plantarflexion
+          mannequin.lFoot.rotation.x = cycle * 0.7;
+          mannequin.rFoot.rotation.x = cycle * 0.7;
+
+          // Light wall balance guide arms
+          mannequin.lUpperArm.rotation.x = -0.3;
+          mannequin.rUpperArm.rotation.x = -0.3;
+          break;
+        }
+
+        case 'glute_bridge': {
+          cueEl.innerText = cycle > 0.6 ? "Straight line knees to shoulders • Squeeze glutes" : "Lower gently with control";
+          // Supine on ground
+          humanoidGroup.position.set(0, 0.12, 0);
+          humanoidGroup.rotation.x = Math.PI / 2;
+
+          // Hips thrust upwards into bridge
+          const bridgeLift = cycle * 0.22;
+          mannequin.pelvis.position.set(0, 0.1 + bridgeLift, 0);
+
+          // Bent knees
+          mannequin.lThigh.rotation.x = 0.8 - (cycle * 0.4);
+          mannequin.rThigh.rotation.x = 0.8 - (cycle * 0.4);
+          mannequin.lKnee.rotation.x = 1.6;
+          mannequin.rKnee.rotation.x = 1.6;
+          break;
+        }
+
+        case 'pullups': {
+          cueEl.innerText = cycle > 0.6 ? "Chin clears bar • Lats fully contracted" : "Controlled dead hang • No swinging";
+          pullupBar.visible = true;
+
+          // Body starts in active dead-hang and pulls upward
+          const pullHeight = cycle * 0.42;
+          humanoidGroup.position.set(0, 0.35 + pullHeight, 0);
+
+          // Arms pulling
+          const pullArm = 0.2 + (cycle * 1.8);
+          mannequin.lUpperArm.rotation.z = 0.8 - (cycle * 0.5);
+          mannequin.lUpperArm.rotation.x = -(cycle * 0.6);
+          mannequin.lElbow.rotation.x = pullArm;
+
+          mannequin.rUpperArm.rotation.z = -0.8 + (cycle * 0.5);
+          mannequin.rUpperArm.rotation.x = -(cycle * 0.6);
+          mannequin.rElbow.rotation.x = pullArm;
+
+          // Legs soft/crossed slightly
+          mannequin.lKnee.rotation.x = 0.4;
+          mannequin.rKnee.rotation.x = 0.4;
+          break;
+        }
+
+        case 'rows':
+        case 'schoolbag_rows': {
+          cueEl.innerText = cycle > 0.6 ? "Squeeze shoulder blades together" : "Flat neutral spine tilted at 45°";
+          schoolBag.visible = true;
+
+          // Bent-over posture at 45 degrees
+          mannequin.pelvis.position.set(0, 0.72, -0.15);
+          mannequin.spine.rotation.x = 0.75; // Hinge at hips
+          mannequin.lKnee.rotation.x = 0.25;
+          mannequin.rKnee.rotation.x = 0.25;
+
+          // Arm row movement pulling bag into lower ribs
+          const rowArm = 0.2 + (cycle * 1.3);
+          mannequin.lUpperArm.rotation.x = -rowArm;
+          mannequin.rUpperArm.rotation.x = -rowArm;
+          mannequin.lElbow.rotation.x = rowArm * 1.2;
+          mannequin.rElbow.rotation.x = rowArm * 1.2;
+
+          // Position school bag in hands
+          const bagLift = cycle * 0.25;
+          schoolBag.position.set(0, 0.35 + bagLift, 0.15);
+          break;
+        }
+
+        case 'curls':
+        case 'biceps_curls': {
+          cueEl.innerText = cycle > 0.6 ? "Elbows pinned to sides • Full bicep flexion" : "Slow 3-second lowering tension";
+          schoolBag.visible = true;
+
+          // Upright stance, elbows pinned
+          const curlRot = cycle * 2.2; // Full curl flexion
+          mannequin.lElbow.rotation.x = -curlRot;
+          mannequin.rElbow.rotation.x = -curlRot;
+
+          // Attach bag to hands
+          const bagY = 0.45 + (cycle * 0.32);
+          const bagZ = 0.18 + (Math.sin(cycle * Math.PI / 2) * 0.12);
+          schoolBag.position.set(0, bagY, bagZ);
+          break;
+        }
+
+        case 'bird_dog': {
+          cueEl.innerText = cycle > 0.6 ? "Opposite arm & leg parallel • Core braced" : "All 4s tabletop • Keep pelvis level";
+          // Tabletop position on all 4s
+          humanoidGroup.position.set(0, 0.28, 0);
+          mannequin.spine.rotation.x = 1.55; // Horizontal spine
+
+          // Right arm extends forward, Left leg extends backward
+          const armExtend = cycle * 1.5;
+          const legExtend = cycle * 1.4;
+
+          mannequin.rUpperArm.rotation.x = 1.55 - armExtend;
+          mannequin.lThigh.rotation.x = 1.55 - legExtend;
+
+          // Supporting limbs bend 90 degrees to floor
+          mannequin.lUpperArm.rotation.x = 0;
+          mannequin.rThigh.rotation.x = 1.55;
+          mannequin.rKnee.rotation.x = 1.55;
+          break;
+        }
+
+        default:
+          break;
+      }
+
+      // Update Form Education Overlay Markers
+      updateOverlayMarkers();
+    }
+
+    function updateOverlayMarkers() {
+      if (!showFormOverlay) {
+        overlayGroup.visible = false;
+        return;
+      }
+      overlayGroup.visible = true;
+
+      // Extract world positions of key joints
+      const lShoulderPos = new THREE.Vector3();
+      const rShoulderPos = new THREE.Vector3();
+      const lElbowPos = new THREE.Vector3();
+      const rElbowPos = new THREE.Vector3();
+      const lKneePos = new THREE.Vector3();
+      const rKneePos = new THREE.Vector3();
+
+      mannequin.lClavicle.getWorldPosition(lShoulderPos);
+      mannequin.rClavicle.getWorldPosition(rShoulderPos);
+      mannequin.lElbow.getWorldPosition(lElbowPos);
+      mannequin.rElbow.getWorldPosition(rElbowPos);
+      mannequin.lKnee.getWorldPosition(lKneePos);
+      mannequin.rKnee.getWorldPosition(rKneePos);
+
+      const positions = [lShoulderPos, rShoulderPos, lElbowPos, rElbowPos, lKneePos, rKneePos];
+      positions.forEach((pos, idx) => {
+        if (jointMarkers[idx]) {
+          jointMarkers[idx].position.copy(pos);
+          jointMarkers[idx].lookAt(camera.position);
+        }
+      });
+    }
+
+    // --- 8. Render & Animation Loop ---
+    let targetCameraPos = null;
+    let targetLookAt = null;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Handle continuous animation progression or step phase
+      if (isPlaying) {
+        if (stepPhase === 0) {
+          animationTime += 0.016 * playbackSpeed;
+          updateExercisePose(animationTime);
+        } else if (stepPhase === 1) {
+          updateExercisePose(0.0); // Setup phase
+        } else if (stepPhase === 2) {
+          updateExercisePose(0.5); // Movement midpoint
+        } else if (stepPhase === 3) {
+          updateExercisePose(1.0); // Peak contraction
+        }
+      }
+
+      // Smooth camera interpolation
+      if (targetCameraPos) {
+        camera.position.lerp(targetCameraPos, 0.08);
+        if (camera.position.distanceTo(targetCameraPos) < 0.01) {
+          targetCameraPos = null;
+        }
+      }
+      if (targetLookAt) {
+        controls.target.lerp(targetLookAt, 0.08);
+        if (controls.target.distanceTo(targetLookAt) < 0.01) {
+          targetLookAt = null;
+        }
+      }
+
+      controls.autoRotate = autoRotate;
+      controls.autoRotateSpeed = 2.0;
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('canvas-container');
+      const w = container.clientWidth || window.innerWidth;
+      const h = container.clientHeight || window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+
+    // --- 9. Public API Called by Android Native Code ---
+
+    window.updateMuscleHighlights = function() {
+      if (!mannequin.chestMesh) return;
+      const allParts = [
+        mannequin.chestMesh, mannequin.spineMesh, mannequin.pelvisMesh,
+        mannequin.lUpperArmMesh, mannequin.rUpperArmMesh,
+        mannequin.lForearmMesh, mannequin.rForearmMesh,
+        mannequin.lThighMesh, mannequin.rThighMesh,
+        mannequin.lShinMesh, mannequin.rShinMesh
+      ];
+      allParts.forEach(p => { if (p) p.material = bodyMat; });
+
+      if (!highlightMuscles) return;
+
+      const k = currentExercise.toLowerCase();
+      if (k.includes('pushup') && k.includes('pike')) {
+        if (mannequin.chestMesh) mannequin.chestMesh.material = muscleHighlightMat;
+        if (mannequin.lUpperArmMesh) mannequin.lUpperArmMesh.material = muscleHighlightMat;
+        if (mannequin.rUpperArmMesh) mannequin.rUpperArmMesh.material = muscleHighlightMat;
+      } else if (k.includes('diamond')) {
+        if (mannequin.lUpperArmMesh) mannequin.lUpperArmMesh.material = muscleHighlightMat;
+        if (mannequin.rUpperArmMesh) mannequin.rUpperArmMesh.material = muscleHighlightMat;
+        if (mannequin.chestMesh) mannequin.chestMesh.material = muscleHighlightMat;
+      } else if (k.includes('pushup')) {
+        if (mannequin.chestMesh) mannequin.chestMesh.material = muscleHighlightMat;
+        if (mannequin.lUpperArmMesh) mannequin.lUpperArmMesh.material = muscleHighlightMat;
+        if (mannequin.rUpperArmMesh) mannequin.rUpperArmMesh.material = muscleHighlightMat;
+      } else if (k.includes('squat')) {
+        if (mannequin.lThighMesh) mannequin.lThighMesh.material = muscleHighlightMat;
+        if (mannequin.rThighMesh) mannequin.rThighMesh.material = muscleHighlightMat;
+        if (mannequin.pelvisMesh) mannequin.pelvisMesh.material = muscleHighlightMat;
+      } else if (k.includes('lunge')) {
+        if (mannequin.lThighMesh) mannequin.lThighMesh.material = muscleHighlightMat;
+        if (mannequin.rThighMesh) mannequin.rThighMesh.material = muscleHighlightMat;
+        if (mannequin.pelvisMesh) mannequin.pelvisMesh.material = muscleHighlightMat;
+      } else if (k.includes('bridge') || k.includes('glute')) {
+        if (mannequin.pelvisMesh) mannequin.pelvisMesh.material = muscleHighlightMat;
+        if (mannequin.lThighMesh) mannequin.lThighMesh.material = muscleHighlightMat;
+        if (mannequin.rThighMesh) mannequin.rThighMesh.material = muscleHighlightMat;
+      } else if (k.includes('calf')) {
+        if (mannequin.lShinMesh) mannequin.lShinMesh.material = muscleHighlightMat;
+        if (mannequin.rShinMesh) mannequin.rShinMesh.material = muscleHighlightMat;
+      } else if (k.includes('pullup')) {
+        if (mannequin.spineMesh) mannequin.spineMesh.material = muscleHighlightMat;
+        if (mannequin.chestMesh) mannequin.chestMesh.material = muscleHighlightMat;
+        if (mannequin.lUpperArmMesh) mannequin.lUpperArmMesh.material = muscleHighlightMat;
+        if (mannequin.rUpperArmMesh) mannequin.rUpperArmMesh.material = muscleHighlightMat;
+      } else if (k.includes('row')) {
+        if (mannequin.spineMesh) mannequin.spineMesh.material = muscleHighlightMat;
+        if (mannequin.chestMesh) mannequin.chestMesh.material = muscleHighlightMat;
+        if (mannequin.lUpperArmMesh) mannequin.lUpperArmMesh.material = muscleHighlightMat;
+        if (mannequin.rUpperArmMesh) mannequin.rUpperArmMesh.material = muscleHighlightMat;
+      } else if (k.includes('curl')) {
+        if (mannequin.lUpperArmMesh) mannequin.lUpperArmMesh.material = muscleHighlightMat;
+        if (mannequin.rUpperArmMesh) mannequin.rUpperArmMesh.material = muscleHighlightMat;
+      } else if (k.includes('bird')) {
+        if (mannequin.spineMesh) mannequin.spineMesh.material = muscleHighlightMat;
+        if (mannequin.pelvisMesh) mannequin.pelvisMesh.material = muscleHighlightMat;
+        if (mannequin.lThighMesh) mannequin.lThighMesh.material = muscleHighlightMat;
+        if (mannequin.rUpperArmMesh) mannequin.rUpperArmMesh.material = muscleHighlightMat;
+      }
+    };
+
+    window.setExercise = function(exerciseKey) {
+      currentExercise = exerciseKey.toLowerCase();
+      animationTime = 0;
+      updateMuscleHighlights();
+      // Adjust camera distance slightly based on exercise height
+      if (currentExercise.includes('pullup')) {
+        targetCameraPos = new THREE.Vector3(0, 1.8, 3.8);
+        targetLookAt = new THREE.Vector3(0, 1.3, 0);
+      } else if (currentExercise.includes('pushup') || currentExercise.includes('glute')) {
+        targetCameraPos = new THREE.Vector3(1.6, 1.0, 2.2);
+        targetLookAt = new THREE.Vector3(0, 0.35, 0);
+      } else {
+        targetCameraPos = new THREE.Vector3(0, 1.2, 3.2);
+        targetLookAt = new THREE.Vector3(0, 0.75, 0);
+      }
+    };
+
+    window.setCameraAngle = function(angleName) {
+      document.querySelectorAll('.angle-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById('btn-ang-' + angleName);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const targetY = currentExercise.includes('pullup') ? 1.3 : (currentExercise.includes('pushup') ? 0.35 : 0.75);
+      const dist = currentExercise.includes('pullup') ? 3.6 : 3.0;
+
+      targetLookAt = new THREE.Vector3(0, targetY, 0);
+
+      switch(angleName) {
+        case 'front':
+          targetCameraPos = new THREE.Vector3(0, targetY + 0.3, dist);
+          break;
+        case 'side':
+          targetCameraPos = new THREE.Vector3(dist, targetY + 0.2, 0.05);
+          break;
+        case 'back':
+          targetCameraPos = new THREE.Vector3(0, targetY + 0.3, -dist);
+          break;
+        case 'angle45':
+          targetCameraPos = new THREE.Vector3(dist * 0.7, targetY + 0.35, dist * 0.7);
+          break;
+        case 'top':
+          targetCameraPos = new THREE.Vector3(0.01, targetY + dist, 0.05);
+          break;
+      }
+    };
+
+    window.resetCamera = function() {
+      setCameraAngle('front');
+    };
+
+    window.zoomIn = function() {
+      camera.position.multiplyScalar(0.85);
+    };
+
+    window.zoomOut = function() {
+      camera.position.multiplyScalar(1.15);
+    };
+
+    window.toggleAutoRotate = function(force) {
+      if (typeof force !== 'undefined') {
+        autoRotate = force;
+      } else {
+        autoRotate = !autoRotate;
+      }
+      const btn = document.getElementById('btn-autorotate');
+      if (btn) btn.style.color = autoRotate ? '#A3E635' : '#F8FAFC';
+    };
+
+    window.setPlaybackSpeed = function(speed) {
+      playbackSpeed = parseFloat(speed) || 1.0;
+    };
+
+    window.togglePlayPause = function(play) {
+      isPlaying = play;
+    };
+
+    window.toggleFormOverlay = function(enable) {
+      showFormOverlay = enable;
+      if (overlayGroup) overlayGroup.visible = enable;
+    };
+
+    window.toggleGrid = function(enable) {
+      showGrid = (typeof enable === 'boolean') ? enable : !showGrid;
+      if (gridHelper) gridHelper.visible = showGrid;
+      if (stageMesh) stageMesh.visible = showGrid;
+      if (ringMesh) ringMesh.visible = showGrid;
+    };
+
+    window.toggleMuscleHighlights = function(enable) {
+      highlightMuscles = (typeof enable === 'boolean') ? enable : !highlightMuscles;
+      updateMuscleHighlights();
+    };
+
+    window.scrubAnimation = function(tNorm) {
+      isPlaying = false;
+      stepPhase = -1;
+      const t = Math.max(0, Math.min(1, parseFloat(tNorm) || 0));
+      animationTime = t;
+      updateExercisePose(t);
+    };
+
+    window.setStepPhase = function(phase) {
+      stepPhase = parseInt(phase) || 0;
+    };
+  </script>
+</body>
+</html>
